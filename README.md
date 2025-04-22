@@ -231,7 +231,6 @@ If you use this code for your research, please cite:
 @article{stem_denoising,
   title={Denoising High-Resolution STEM Images Using Deep Learning},
   author={Ali Baghi Zadeh},
-  journal={},
   year={2025},
 }
 ```
