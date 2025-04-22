@@ -230,9 +230,9 @@ If you use this code for your research, please cite:
 ```
 @article{stem_denoising,
   title={Denoising High-Resolution STEM Images Using Deep Learning},
-  author={Your Name},
+  author={Ali Baghi Zadeh},
   journal={},
-  year={2023},
+  year={2025},
 }
 ```
 
