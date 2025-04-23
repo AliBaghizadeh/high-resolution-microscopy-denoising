@@ -270,6 +270,7 @@ def multiscale_gradient_loss(scales=[1, 2, 4]):
 def create_combined_loss_fn(alpha=0.84, beta=0.06, gamma=0.1, delta=0, epsilon=0, mu=0):
     """
     Creates a Keras-compatible wrapper for the multi-parameter combined_loss function.
+    For use with Keras models which expect loss functions with only (y_true, y_pred) params.
     
     Args:
         alpha: Weight for MSE loss
@@ -282,7 +283,71 @@ def create_combined_loss_fn(alpha=0.84, beta=0.06, gamma=0.1, delta=0, epsilon=0
     Returns:
         A function that takes only y_true and y_pred (Keras-compatible)
     """
+    # Define metrics for component tracking
+    mse_metric = tf.keras.metrics.Mean(name='mse_loss')
+    fft_metric = tf.keras.metrics.Mean(name='fft_loss')
+    poisson_metric = tf.keras.metrics.Mean(name='poisson_loss')
+    ssim_metric = tf.keras.metrics.Mean(name='ssim_loss')
+    tv_metric = tf.keras.metrics.Mean(name='tv_loss')
+    mean_intensity_metric = tf.keras.metrics.Mean(name='mean_intensity_loss')
+    
+    def mse_loss(y_true, y_pred):
+        return MeanSquaredError()(y_true, y_pred)
+        
+    def fft_loss(y_true, y_pred):
+        true_fft = tf.signal.rfft2d(tf.squeeze(y_true, -1))
+        pred_fft = tf.signal.rfft2d(tf.squeeze(y_pred, -1))
+        return MeanSquaredError()(tf.abs(true_fft), tf.abs(pred_fft))
+    
+    def poisson_loss(y_true, y_pred):
+        # Small epsilon to prevent log(0)
+        epsilon = 1e-10
+        y_pred = tf.clip_by_value(y_pred, epsilon, 1.0)
+        return tf.reduce_mean(y_pred - y_true * tf.math.log(y_pred + epsilon))
+    
+    def normalized_tv_loss(y_true, y_pred):
+        # Total variation loss normalized by the mean of y_true
+        tv = tf.reduce_mean(tf.image.total_variation(y_pred))
+        mean_true = tf.reduce_mean(y_true)
+        return tv / (mean_true + 1e-8)
+    
+    def mean_intensity_loss(y_true, y_pred):
+        # Penalize difference in mean intensity 
+        mean_true = tf.reduce_mean(y_true, axis=[1, 2, 3])
+        mean_pred = tf.reduce_mean(y_pred, axis=[1, 2, 3])
+        return tf.reduce_mean(tf.square(mean_true - mean_pred))
+    
     def loss_fn(y_true, y_pred):
-        return combined_loss(y_true, y_pred, alpha, beta, gamma, delta, epsilon, mu)
+        """
+        Combined loss function: MSE + FFT Loss + Poisson Loss + SSIM Loss + Normalized TV + Mean Intensity Loss.
+        Tracks individual loss components separately for better visualization.
+        """
+        # Compute each loss term only if its weight is non-zero
+        mse = mse_loss(y_true, y_pred) if alpha > 0 else 0
+        fft = fft_loss(y_true, y_pred) if beta > 0 else 0
+        poisson = poisson_loss(y_true, y_pred) if gamma > 0 else 0
+        ssim = ssim_loss(y_true, y_pred) if delta > 0 else 0
+        tv = normalized_tv_loss(y_true, y_pred) if epsilon > 0 else 0
+        mean_intensity = mean_intensity_loss(y_true, y_pred) if mu > 0 else 0
+        
+        # Update metric tracking only for non-zero components
+        if alpha > 0:
+            mse_metric.update_state(mse)
+        if beta > 0:
+            fft_metric.update_state(fft)
+        if gamma > 0:
+            poisson_metric.update_state(poisson)
+        if delta > 0:
+            ssim_metric.update_state(ssim)
+        if epsilon > 0:
+            tv_metric.update_state(tv)
+        if mu > 0:
+            mean_intensity_metric.update_state(mean_intensity)
+        
+        # Total weighted sum
+        total_loss = (alpha * mse + beta * fft + gamma * poisson + delta * ssim
+                      + epsilon * tv + mu * mean_intensity)
+        
+        return total_loss
     
     return loss_fn 
