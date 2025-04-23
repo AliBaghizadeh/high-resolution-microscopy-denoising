@@ -1,14 +1,8 @@
 import tensorflow as tf
 import tensorflow.keras.backend as K
+from tensorflow.keras.losses import MeanSquaredError, MeanAbsoluteError, binary_crossentropy
+from tensorflow.keras.applications import VGG16
 import numpy as np
-
-# Initialize TensorFlow Metrics for Logging Losses
-mse_metric = tf.keras.metrics.Mean(name="mse_loss")
-fft_metric = tf.keras.metrics.Mean(name="fft_loss")
-poisson_metric = tf.keras.metrics.Mean(name="poisson_loss")
-ssim_metric = tf.keras.metrics.Mean(name="ssim_loss")
-tv_metric = tf.keras.metrics.Mean(name="tv_loss")
-mean_intensity_metric = tf.keras.metrics.Mean(name="mean_intensity_loss")
 
 def ssim_loss(y_true, y_pred):
     """
@@ -21,15 +15,6 @@ def ssim_loss(y_true, y_pred):
     Returns:
         SSIM loss value
     """
-    y_true = tf.cast(y_true, tf.float32)
-    y_pred = tf.cast(y_pred, tf.float32)
-
-    # Only convert if the image has 3 channels (RGB)
-    if y_true.shape[-1] == 3:
-        y_true = tf.image.rgb_to_grayscale(y_true)
-    if y_pred.shape[-1] == 3:
-        y_pred = tf.image.rgb_to_grayscale(y_pred)
-
     return 1 - tf.reduce_mean(tf.image.ssim(y_true, y_pred, max_val=1.0))
 
 def psnr_metric(y_true, y_pred):
@@ -45,102 +30,259 @@ def psnr_metric(y_true, y_pred):
     """
     return tf.reduce_mean(tf.image.psnr(y_true, y_pred, max_val=1.0))
 
-# Standard Mean Squared Error (MSE) Loss
-def mse_loss(y_true, y_pred):
-    y_true = tf.cast(y_true, tf.float32)
-    y_pred = tf.cast(y_pred, tf.float32)
-    return tf.reduce_mean(tf.square(y_true - y_pred))
-
-# FFT-Based Loss (Frequency Domain)
-def fft_loss(y_true, y_pred):
+def ms_ssim_loss(y_true, y_pred):
     """
-    Compares the frequency domain of the true and predicted images using FFT.
-    """
-    y_true = tf.cast(y_true, tf.float32)
-    y_pred = tf.cast(y_pred, tf.float32)
-
-    fft_true = tf.signal.fft2d(tf.cast(y_true, tf.complex64))  # Convert to complex
-    fft_pred = tf.signal.fft2d(tf.cast(y_pred, tf.complex64))  # Convert to complex
-
-    # Take absolute values to remove imaginary components
-    log_fft_true = tf.math.log(1.0 + tf.abs(fft_true))
-    log_fft_pred = tf.math.log(1.0 + tf.abs(fft_pred))
-
-    loss = tf.reduce_mean(tf.square(log_fft_true - log_fft_pred))  # Compute Mean Squared Error in log-space
-    return loss
-
-def normalized_tv_loss(y_true, y_pred):
-    """ TV loss normalized to prevent large values dominating the loss. Accepts y_true for compatibility. """
-    tv = tf.reduce_mean(tf.image.total_variation(tf.cast(y_pred, tf.float32)))  # Work in float32
-    image_size = tf.cast(tf.size(y_pred), tf.float32)  # Total number of pixels as float32
-    return tv / image_size
-
-def mean_intensity_loss(y_true, y_pred):
-    """ Penalize deviation from mean intensity of the target image """
-    mean_true = tf.reduce_mean(tf.cast(y_true, tf.float32))  # Cast to float32
-    mean_pred = tf.reduce_mean(tf.cast(y_pred, tf.float32))  # Cast to float32
-    return tf.abs(mean_true - mean_pred)  # Always returns float32
-
-# Poisson-Based Loss (for Noise Modeling)
-def poisson_loss(y_true, y_pred):
-    y_true = tf.cast(y_true, tf.float32)
-    y_pred = tf.cast(y_pred, tf.float32)
-    epsilon = 1e-8  # Prevent log(0)
-    y_pred = tf.clip_by_value(y_pred, epsilon, 1.0)
-    return tf.reduce_mean(y_pred - y_true * tf.math.log(y_pred))
-
-def combined_loss(y_true, y_pred, alpha, beta, gamma, delta, epsilon, mu):
-    """
-    Combined loss function: MSE + FFT Loss + Poisson Loss + SSIM Loss + Normalized TV + Mean Intensity Loss.
-
-    Tracks individual loss components separately for better visualization.
-    """
-
-    # Compute each loss term only if its weight is non-zero
-    mse = mse_loss(y_true, y_pred) if alpha > 0 else 0
-    fft = fft_loss(y_true, y_pred) if beta > 0 else 0
-    poisson = poisson_loss(y_true, y_pred) if gamma > 0 else 0
-    ssim = ssim_loss(y_true, y_pred) if delta > 0 else 0
-    tv = normalized_tv_loss(y_true, y_pred) if epsilon > 0 else 0
-    mean_intensity = mean_intensity_loss(y_true, y_pred) if mu > 0 else 0  # Intensity preservation
-
-    # Update metric tracking only for non-zero components
-    if alpha > 0:
-        mse_metric.update_state(mse)
-    if beta > 0:
-        fft_metric.update_state(fft)
-    if gamma > 0:
-        poisson_metric.update_state(poisson)
-    if delta > 0:
-        ssim_metric.update_state(ssim)
-    if epsilon > 0:
-        tv_metric.update_state(tv)
-    if mu > 0:
-        mean_intensity_metric.update_state(mean_intensity)
-
-    # Total weighted sum (now includes mean intensity)
-    total_loss = (alpha * mse + beta * fft + gamma * poisson + delta * ssim
-                  + epsilon * tv + mu * mean_intensity)
-
-    return total_loss
-
-# Loss function factory for compatibility with Keras (added for Colab compatibility)
-def get_loss_function(alpha=1.0, beta=0.1, gamma=0.1, delta=0.1, epsilon=0.001, mu=0.1):
-    """
-    Creates a combined loss function with specified weights that can be passed to model.compile().
+    Multi-Scale Structural Similarity Index (MS-SSIM) loss.
     
     Args:
-        alpha (float): Weight for MSE loss (default: 1.0)
-        beta (float): Weight for FFT loss (default: 0.1)
-        gamma (float): Weight for Poisson loss (default: 0.1)
-        delta (float): Weight for SSIM loss (default: 0.1)
-        epsilon (float): Weight for TV loss (default: 0.001)
-        mu (float): Weight for mean intensity loss (default: 0.1)
+        y_true: Ground truth images
+        y_pred: Predicted images
+    
+    Returns:
+        MS-SSIM loss value
+    """
+    return 1 - tf.reduce_mean(tf.image.ssim_multiscale(y_true, y_pred, max_val=1.0))
+
+def combined_loss(alpha=0.84):
+    """
+    Combined loss with weighted MSE and SSIM components.
+    
+    Args:
+        alpha: Weight for SSIM loss (1-alpha for MSE)
+    
+    Returns:
+        Combined loss function
+    """
+    def loss(y_true, y_pred):
+        mse_loss = MeanSquaredError()(y_true, y_pred)
+        ssim_l = ssim_loss(y_true, y_pred)
+        return alpha * ssim_l + (1 - alpha) * mse_loss
+    
+    return loss
+
+def l1_l2_loss(l1_ratio=0.5):
+    """
+    Combination of L1 and L2 losses.
+    
+    Args:
+        l1_ratio: Weight for L1 loss (1-l1_ratio for L2)
+    
+    Returns:
+        Combined L1-L2 loss function
+    """
+    def loss(y_true, y_pred):
+        l1_loss = MeanAbsoluteError()(y_true, y_pred)
+        l2_loss = MeanSquaredError()(y_true, y_pred)
+        return l1_ratio * l1_loss + (1 - l1_ratio) * l2_loss
+    
+    return loss
+
+def perceptual_loss(input_shape=(256, 256, 1)):
+    """
+    Perceptual loss using VGG16 features.
+    
+    Args:
+        input_shape: Input image shape
+    
+    Returns:
+        Perceptual loss function
+    """
+    # Create VGG model for feature extraction
+    vgg = VGG16(include_top=False, weights='imagenet', input_shape=(256, 256, 3))
+    
+    # Use specific layers for feature comparison
+    layer_names = ['block1_conv2', 'block2_conv2', 'block3_conv3', 'block4_conv3']
+    layer_outputs = [vgg.get_layer(name).output for name in layer_names]
+    
+    # Create feature extraction model
+    feature_model = tf.keras.Model(inputs=vgg.input, outputs=layer_outputs)
+    feature_model.trainable = False
+    
+    def loss(y_true, y_pred):
+        # Convert grayscale to RGB by repeating channels
+        y_true_rgb = tf.tile(y_true, [1, 1, 1, 3])
+        y_pred_rgb = tf.tile(y_pred, [1, 1, 1, 3])
+        
+        # Extract features
+        true_features = feature_model(y_true_rgb)
+        pred_features = feature_model(y_pred_rgb)
+        
+        # Calculate MSE between features
+        loss_value = 0
+        for true_feat, pred_feat in zip(true_features, pred_features):
+            loss_value += MeanSquaredError()(true_feat, pred_feat)
+        
+        return loss_value
+    
+    return loss
+
+def ssim_perceptual_loss(alpha=0.5, input_shape=(256, 256, 1)):
+    """
+    Combined SSIM and perceptual loss.
+    
+    Args:
+        alpha: Weight for SSIM loss
+        input_shape: Input image shape
+    
+    Returns:
+        Combined loss function
+    """
+    perceptual = perceptual_loss(input_shape)
+    
+    def loss(y_true, y_pred):
+        p_loss = perceptual(y_true, y_pred)
+        s_loss = ssim_loss(y_true, y_pred)
+        return alpha * s_loss + (1 - alpha) * p_loss
+    
+    return loss
+
+def content_aware_loss(edge_weight=2.0):
+    """
+    Content-aware loss with higher weights for edges.
+    
+    Args:
+        edge_weight: Weight multiplier for edge regions
+    
+    Returns:
+        Content-aware loss function
+    """
+    def loss(y_true, y_pred):
+        # Detect edges in ground truth using Sobel operator
+        edges_x = tf.abs(tf.image.sobel_edges(y_true)[:,:,:,:,0])
+        edges_y = tf.abs(tf.image.sobel_edges(y_true)[:,:,:,:,1])
+        edge_mask = tf.clip_by_value(edges_x + edges_y, 0, 1)
+        
+        # Create weighted mask (edges have higher weight)
+        weights = 1.0 + (edge_weight - 1.0) * edge_mask
+        
+        # Calculate weighted MSE
+        squared_diff = tf.square(y_true - y_pred)
+        weighted_squared_diff = weights * squared_diff
+        
+        return tf.reduce_mean(weighted_squared_diff)
+    
+    return loss
+
+def gradient_loss():
+    """
+    Gradient-based loss that compares image gradients.
+    
+    Returns:
+        Gradient loss function
+    """
+    def loss(y_true, y_pred):
+        # Calculate gradients
+        true_grad_x = tf.image.sobel_edges(y_true)[:,:,:,:,0]
+        true_grad_y = tf.image.sobel_edges(y_true)[:,:,:,:,1]
+        pred_grad_x = tf.image.sobel_edges(y_pred)[:,:,:,:,0]
+        pred_grad_y = tf.image.sobel_edges(y_pred)[:,:,:,:,1]
+        
+        # Calculate MSE for gradients
+        grad_x_loss = MeanSquaredError()(true_grad_x, pred_grad_x)
+        grad_y_loss = MeanSquaredError()(true_grad_y, pred_grad_y)
+        
+        return grad_x_loss + grad_y_loss
+    
+    return loss
+
+def total_variation_loss(y_true, y_pred):
+    """
+    Total Variation loss for encouraging spatial smoothness.
+    
+    Args:
+        y_true: Ground truth images (not used in this loss)
+        y_pred: Predicted images
+    
+    Returns:
+        Total variation loss value
+    """
+    return tf.reduce_mean(tf.image.total_variation(y_pred))
+
+def boundary_mse_loss(boundary_weight=2.0):
+    """
+    MSE loss with higher weights for object boundaries.
+    
+    Args:
+        boundary_weight: Weight for boundary regions
+    
+    Returns:
+        Boundary-weighted MSE loss function
+    """
+    def loss(y_true, y_pred):
+        # Create boundary mask using Laplacian
+        laplacian = tf.abs(tf.nn.depthwise_conv2d(
+            y_true, 
+            tf.reshape(tf.constant([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=tf.float32), [3, 3, 1, 1]), 
+            strides=[1, 1, 1, 1], 
+            padding='SAME'
+        ))
+        boundary_mask = tf.clip_by_value(laplacian, 0, 1)
+        
+        # Create weights
+        weights = 1.0 + (boundary_weight - 1.0) * boundary_mask
+        
+        # Calculate weighted MSE
+        squared_diff = tf.square(y_true - y_pred)
+        weighted_loss = weights * squared_diff
+        
+        return tf.reduce_mean(weighted_loss)
+    
+    return loss
+
+def multiscale_gradient_loss(scales=[1, 2, 4]):
+    """
+    Multi-scale gradient loss comparing gradients at different scales.
+    
+    Args:
+        scales: List of scales to compute gradients
+    
+    Returns:
+        Multi-scale gradient loss function
+    """
+    def loss(y_true, y_pred):
+        loss_value = 0
+        
+        for scale in scales:
+            if scale > 1:
+                # Downscale images
+                true_scaled = tf.nn.avg_pool2d(y_true, ksize=scale, strides=scale, padding='VALID')
+                pred_scaled = tf.nn.avg_pool2d(y_pred, ksize=scale, strides=scale, padding='VALID')
+            else:
+                true_scaled = y_true
+                pred_scaled = y_pred
+            
+            # Calculate gradients
+            true_grad_x = tf.image.sobel_edges(true_scaled)[:,:,:,:,0]
+            true_grad_y = tf.image.sobel_edges(true_scaled)[:,:,:,:,1]
+            pred_grad_x = tf.image.sobel_edges(pred_scaled)[:,:,:,:,0]
+            pred_grad_y = tf.image.sobel_edges(pred_scaled)[:,:,:,:,1]
+            
+            # Calculate MSE for gradients
+            grad_x_loss = MeanSquaredError()(true_grad_x, pred_grad_x)
+            grad_y_loss = MeanSquaredError()(true_grad_y, pred_grad_y)
+            
+            loss_value += grad_x_loss + grad_y_loss
+            
+        return loss_value / len(scales)
+    
+    return loss
+
+def create_combined_loss_fn(alpha=0.84, beta=0.06, gamma=0.1, delta=0, epsilon=0, mu=0):
+    """
+    Creates a Keras-compatible wrapper for the multi-parameter combined_loss function.
+    
+    Args:
+        alpha: Weight for MSE loss
+        beta: Weight for FFT loss
+        gamma: Weight for Poisson loss
+        delta: Weight for SSIM loss
+        epsilon: Weight for TV loss
+        mu: Weight for Mean Intensity loss
         
     Returns:
-        function: A loss function compatible with Keras models
+        A function that takes only y_true and y_pred (Keras-compatible)
     """
-    def loss_function(y_true, y_pred):
+    def loss_fn(y_true, y_pred):
         return combined_loss(y_true, y_pred, alpha, beta, gamma, delta, epsilon, mu)
     
-    return loss_function 
+    return loss_fn 
