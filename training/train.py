@@ -5,10 +5,10 @@ import os
 import datetime
 import matplotlib.pyplot as plt
 import numpy as np
-from models.unet import unet_model, deep_unet_model, residual_unet_model
-from models.pretrained import vgg16_unet, resnet50_unet, efficient_unet
-from training.loss_functions import combined_loss, ssim_loss, psnr_metric, ssim_loss
-from training.metrics import psnr, ssim, fid_score
+from ..models.unet import unet_model, deep_unet_model, residual_unet_model
+from ..models.pretrained import vgg16_unet, resnet50_unet, efficient_unet
+from .loss_functions import combined_loss, ssim_loss, psnr_metric, ms_ssim_loss
+from .metrics import psnr, ssim, fid_score
 
 class DenoiseTrainer:
     """
@@ -327,7 +327,7 @@ def main():
     """
     Main function to demonstrate model training.
     """
-    from data.dataset import DenoiseDataGenerator
+    from ..data.dataset import DenoiseDataGenerator
     
     # Initialize data generators
     data_dir = "/path/to/dataset_final"
