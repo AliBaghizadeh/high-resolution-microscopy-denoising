@@ -1,214 +1,57 @@
-import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, UpSampling2D, Input, Conv2DTranspose
-from tensorflow.keras.layers import concatenate, BatchNormalization, Activation, Dropout
 from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, UpSampling2D, concatenate, Dropout
 from tensorflow.keras.regularizers import l2
+from tensorflow.keras import mixed_precision
 
-def conv_block(input_tensor, num_filters, kernel_size=3, batch_norm=True, dropout_rate=0.0):
-    """
-    Creates a convolutional block with optional batch normalization and dropout.
-    
+# Enable mixed precision
+mixed_precision.set_global_policy('mixed_float16')
+
+def build_unet(input_shape=(256, 256, 1), dropout_rate=0.35, l2_strength=2e-4):
+    '''
+    Build a UNet model from scratch using functional API, L2 regularization and mixed precision.
+
     Args:
-        input_tensor: Input tensor
-        num_filters: Number of filters in the convolutional layer
-        kernel_size: Size of the kernel for convolution
-        batch_norm: Whether to apply batch normalization
-        dropout_rate: Dropout rate (0 = no dropout)
-    
+        input_shape (tuple): Input shape of images, default (256, 256, 1).
+        dropout_rate (float): Dropout rate to apply between layers.
+        l2_strength (float): L2 regularization weight.
+
     Returns:
-        Tensor after applying convolution, normalization and activation
-    """
-    x = Conv2D(num_filters, (kernel_size, kernel_size), 
-               padding='same', 
-               kernel_regularizer=l2(1e-4))(input_tensor)
-    
-    if batch_norm:
-        x = BatchNormalization()(x)
-    
-    x = Activation('relu')(x)
-    
-    if dropout_rate > 0:
+        tf.keras.Model: Constructed UNet model.
+    '''
+    inputs = Input(shape=input_shape)
+
+    def conv_block(x, filters):
+        x = Conv2D(filters, 3, activation='relu', padding='same', kernel_regularizer=l2(l2_strength))(x)
+        x = Conv2D(filters, 3, activation='relu', padding='same', kernel_regularizer=l2(l2_strength))(x)
         x = Dropout(dropout_rate)(x)
-    
-    x = Conv2D(num_filters, (kernel_size, kernel_size), 
-               padding='same',
-               kernel_regularizer=l2(1e-4))(x)
-    
-    if batch_norm:
-        x = BatchNormalization()(x)
-    
-    x = Activation('relu')(x)
-    
-    return x
+        return x
 
-def unet_model(input_size=(256, 256, 1), 
-               filters=[64, 128, 256, 512, 1024], 
-               batch_norm=True, 
-               dropout_rates=[0.0, 0.0, 0.0, 0.0, 0.0], 
-               use_transpose=True):
-    """
-    Creates a U-Net model for image denoising.
-    
-    Args:
-        input_size: Input image dimensions (height, width, channels)
-        filters: List of filter numbers for each level
-        batch_norm: Whether to use batch normalization
-        dropout_rates: List of dropout rates for each level
-        use_transpose: Whether to use transposed convolution for upsampling
-    
-    Returns:
-        Keras Model object
-    """
-    inputs = Input(input_size)
-    
-    # Contracting path (encoder)
-    conv_layers = []
-    x = inputs
-    
-    for i, f in enumerate(filters[:-1]):
-        x = conv_block(x, f, batch_norm=batch_norm, dropout_rate=dropout_rates[i])
-        conv_layers.append(x)
-        x = MaxPooling2D((2, 2))(x)
-    
-    # Bridge
-    x = conv_block(x, filters[-1], batch_norm=batch_norm, dropout_rate=dropout_rates[-1])
-    
-    # Expansive path (decoder)
-    for i in reversed(range(len(filters)-1)):
-        if use_transpose:
-            x = Conv2DTranspose(filters[i], (2, 2), strides=(2, 2), padding='same')(x)
-        else:
-            x = UpSampling2D((2, 2))(x)
-            x = Conv2D(filters[i], (2, 2), padding='same')(x)
-            x = Activation('relu')(x)
-        
-        x = concatenate([x, conv_layers[i]])
-        x = conv_block(x, filters[i], batch_norm=batch_norm, dropout_rate=dropout_rates[i])
-    
-    # Output layer
-    outputs = Conv2D(1, (1, 1), padding='same', activation='sigmoid')(x)
-    
-    model = Model(inputs=[inputs], outputs=[outputs])
-    
-    return model
+    # Encoder
+    c1 = conv_block(inputs, 64)
+    p1 = MaxPooling2D()(c1)
+    c2 = conv_block(p1, 128)
+    p2 = MaxPooling2D()(c2)
+    c3 = conv_block(p2, 256)
+    p3 = MaxPooling2D()(c3)
+    c4 = conv_block(p3, 512)
+    p4 = MaxPooling2D()(c4)
 
-def deep_unet_model(input_size=(256, 256, 1), 
-                    filters=[64, 128, 256, 512, 1024, 2048], 
-                    batch_norm=True,
-                    dropout_rates=[0.0, 0.0, 0.0, 0.2, 0.3, 0.4],
-                    use_transpose=True):
-    """
-    Creates a deeper U-Net model for image denoising.
-    
-    Args:
-        input_size: Input image dimensions (height, width, channels)
-        filters: List of filter numbers for each level
-        batch_norm: Whether to use batch normalization
-        dropout_rates: List of dropout rates for each level
-        use_transpose: Whether to use transposed convolution for upsampling
-    
-    Returns:
-        Keras Model object
-    """
-    inputs = Input(input_size)
-    
-    # Contracting path (encoder)
-    conv_layers = []
-    x = inputs
-    
-    for i, f in enumerate(filters[:-1]):
-        x = conv_block(x, f, batch_norm=batch_norm, dropout_rate=dropout_rates[i])
-        conv_layers.append(x)
-        x = MaxPooling2D((2, 2))(x)
-    
     # Bridge
-    x = conv_block(x, filters[-1], batch_norm=batch_norm, dropout_rate=dropout_rates[-1])
-    
-    # Expansive path (decoder)
-    for i in reversed(range(len(filters)-1)):
-        if use_transpose:
-            x = Conv2DTranspose(filters[i], (2, 2), strides=(2, 2), padding='same')(x)
-        else:
-            x = UpSampling2D((2, 2))(x)
-            x = Conv2D(filters[i], (2, 2), padding='same')(x)
-            x = Activation('relu')(x)
-        
-        x = concatenate([x, conv_layers[i]])
-        x = conv_block(x, filters[i], batch_norm=batch_norm, dropout_rate=dropout_rates[i])
-    
-    # Output layer
-    outputs = Conv2D(1, (1, 1), padding='same', activation='sigmoid')(x)
-    
-    model = Model(inputs=[inputs], outputs=[outputs])
-    
-    return model
+    c5 = conv_block(p4, 1024)
 
-def residual_unet_model(input_size=(256, 256, 1), 
-                       filters=[64, 128, 256, 512, 1024], 
-                       batch_norm=True, 
-                       dropout_rates=[0.0, 0.0, 0.0, 0.0, 0.0], 
-                       use_transpose=True):
-    """
-    Creates a U-Net model with residual connections for image denoising.
-    
-    Args:
-        input_size: Input image dimensions (height, width, channels)
-        filters: List of filter numbers for each level
-        batch_norm: Whether to use batch normalization
-        dropout_rates: List of dropout rates for each level
-        use_transpose: Whether to use transposed convolution for upsampling
-    
-    Returns:
-        Keras Model object
-    """
-    inputs = Input(input_size)
-    
-    # Contracting path (encoder)
-    conv_layers = []
-    x = inputs
-    
-    for i, f in enumerate(filters[:-1]):
-        x_in = x
-        x = conv_block(x, f, batch_norm=batch_norm, dropout_rate=dropout_rates[i])
-        
-        # Add residual connection if input channels match
-        if i > 0:
-            # Make sure dimensions match with a 1x1 conv if needed
-            x_res = Conv2D(f, (1, 1), padding='same')(x_in)
-            x = tf.keras.layers.add([x, x_res])
-        
-        conv_layers.append(x)
-        x = MaxPooling2D((2, 2))(x)
-    
-    # Bridge
-    x_bridge = x
-    x = conv_block(x, filters[-1], batch_norm=batch_norm, dropout_rate=dropout_rates[-1])
-    
-    # Add residual connection in the bridge
-    x_res = Conv2D(filters[-1], (1, 1), padding='same')(x_bridge)
-    x = tf.keras.layers.add([x, x_res])
-    
-    # Expansive path (decoder)
-    for i in reversed(range(len(filters)-1)):
-        if use_transpose:
-            x = Conv2DTranspose(filters[i], (2, 2), strides=(2, 2), padding='same')(x)
-        else:
-            x = UpSampling2D((2, 2))(x)
-            x = Conv2D(filters[i], (2, 2), padding='same')(x)
-            x = Activation('relu')(x)
-        
-        x = concatenate([x, conv_layers[i]])
-        
-        x_in = x
-        x = conv_block(x, filters[i], batch_norm=batch_norm, dropout_rate=dropout_rates[i])
-        
-        # Add residual connection in decoder
-        x_res = Conv2D(filters[i], (1, 1), padding='same')(x_in)
-        x = tf.keras.layers.add([x, x_res])
-    
-    # Output layer
-    outputs = Conv2D(1, (1, 1), padding='same', activation='sigmoid')(x)
-    
-    model = Model(inputs=[inputs], outputs=[outputs])
-    
-    return model 
+    # Decoder
+    u6 = UpSampling2D()(c5)
+    u6 = concatenate([u6, c4])
+    c6 = conv_block(u6, 512)
+    u7 = UpSampling2D()(c6)
+    u7 = concatenate([u7, c3])
+    c7 = conv_block(u7, 256)
+    u8 = UpSampling2D()(c7)
+    u8 = concatenate([u8, c2])
+    c8 = conv_block(u8, 128)
+    u9 = UpSampling2D()(c8)
+    u9 = concatenate([u9, c1])
+    c9 = conv_block(u9, 64)
+
+    outputs = Conv2D(1, 1, activation='sigmoid', dtype='float32')(c9)
+    return Model(inputs, outputs)
