@@ -1,245 +1,142 @@
-# STEM Image Denoising with Deep Learning
+# 🔬 STEM Image Denoising using Deep Learning
 
-A comprehensive research codebase for denoising high-resolution STEM (Scanning Transmission Electron Microscopy) images using deep learning approaches.
+This repository provides a modular and reproducible framework for denoising high-resolution Scanning Transmission Electron Microscopy (STEM) images using a variety of UNet-based architectures.
 
-## Overview
+---
 
-This repository contains a modular and well-structured implementation of various UNet-based deep learning models for STEM image denoising, including:
-
-- Standard UNet from scratch
-- Residual UNet with skip connections
-- Deeper UNet architectures
-- UNet with pre-trained encoders (VGG16, ResNet50, EfficientNet)
-
-The codebase includes data preprocessing pipelines, model training, evaluation metrics specific to microscopy, and comprehensive visualization tools.
-
-## Project Structure
+## 📁 Project Structure
 
 ```
 stem-denoising/
-├── data/
-│   ├── raw/                # Raw STEM images
-│   ├── processed/          # Processed, patched images
-│   └── dataset.py          # Dataset loading and preprocessing
+├── data/                   # Raw and processed datasets
+│   ├── raw/                # Original noisy/clean image pairs
+│   ├── processed/          # Patched and augmented data
+│   └── dataset.py          # Preprocessing, patching, augmentation
 ├── models/
-│   ├── unet.py             # UNet implementation
-│   ├── pretrained.py       # Pre-trained CNN UNet variants
-│   └── utils.py            # Model utilities
+│   ├── unet.py             # UNet from scratch
+│   ├── pretrained.py       # UNet with pretrained encoders (VGG16)
+│   └── utils.py            # Utilities for saving images
 ├── training/
-│   ├── train.py            # Training logic
-│   ├── loss_functions.py   # All loss functions
-│   └── metrics.py          # Evaluation metrics
+│   ├── train.py            # Training pipeline
+│   ├── loss_functions.py   # Composite and perceptual loss functions
+│   └── metrics.py          # PSNR, SSIM utilities
 ├── evaluation/
-│   ├── eval.py             # Evaluation scripts
-│   └── visualize.py        # Result visualization
-├── config.py               # Configuration parameters
-├── requirements.txt        # Dependencies
-└── README.md               # Documentation
+│   ├── eval.py             # Evaluation script
+│   └── visualize.py        # Visualization, training plots, analysis
+├── config.py               # Global configs (patch size, batch size)
+├── requirements.txt        # Python dependencies
+└── README.md               # This file
 ```
 
-## Requirements
+---
 
-- Python 3.7+
-- TensorFlow 2.4+
-- numpy, pandas, matplotlib, scikit-image
-- tqdm, patchify
-- scipy
+## 🧠 Key Features
 
-Install dependencies:
+- 🔧 **UNet Variants**: Standard UNet, residual UNet, and pretrained UNet (VGG16)
+- 🧪 **Loss Functions**: Custom hybrid loss including MSE, FFT, Poisson, SSIM, TV, and intensity loss
+- 🔁 **Augmentation**: Geometric + physics-inspired distortions (salt & pepper, drift, atomic plane)
+- 📊 **Metrics**: Real-time PSNR and SSIM logging during training
+- 🧼 **Mixed Precision Training**: Optional float16 for speed and memory efficiency
+- 📉 **Callbacks & Checkpoints**: Integrated learning rate scheduler, early stopping, model saving
+- 🖼️ **Visualization**: Predictions, training metrics, and component-wise loss plots
+
+---
+
+## 🚀 Getting Started
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/yourusername/stem-denoising.git
+cd stem-denoising
+```
+
+### 2. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Data Preparation
+### 3. Prepare Data
 
-### Dataset Structure
-
-The data should be organized as follows:
+Organize your data like:
 
 ```
-data/
-├── raw/
-│   ├── noisy/        # Original noisy STEM images
-│   └── clean/        # Corresponding clean images (ground truth)
-└── processed/        # Will contain processed and patched images
+data/raw/
+├── noisy/
+│   └── noisy1.png
+├── clean/
+│   └── clean1.png
 ```
 
-### Preprocessing Pipeline
-
-1. **Image Patching**: Divides large STEM images into patches for training:
+Then run the following in Python:
 
 ```python
-from data.dataset import patch_and_save
-
-# Extract patches from raw images
-patch_and_save(
-    source_noisy="data/raw/noisy",
-    source_clean="data/raw/clean", 
-    output_dir="data/processed/patches"
-)
+from data.dataset import patch_and_save, split_dataset, offline_augmentation
 ```
 
-2. **Dataset Splitting**: Split data into train/validation/test sets:
+### 4. Train the Model
 
 ```python
-from data.dataset import split_dataset
+from models.unet import build_unet
+from training.train import train_model, get_callbacks
 
-# Split the dataset
-split_dataset(
-    source_dir="data/processed/patches",
-    output_dir="data/processed/final",
-    train_ratio=0.8,
-    val_ratio=0.1
-)
+model = build_unet()
+train_model(model, train_ds, val_ds,
+            alpha=1.0, beta=0.3, gamma=0.3,
+            delta=0.1, epsilon=0.05, mu=0.2,
+            callbacks=get_callbacks())
 ```
 
-## Model Training
+---
 
-### Basic Training Example
+## 📈 Visualizations and Evaluation
 
 ```python
-from data.dataset import DenoiseDataGenerator
-from training.train import DenoiseTrainer
-
-# Initialize data generators
-data_dir = "data/processed/final"
-batch_size = 8
-
-data_generator = DenoiseDataGenerator(data_dir, batch_size=batch_size)
-train_gen = data_generator.get_generator('train')
-val_gen = data_generator.get_generator('val')
-
-# Initialize the trainer
-trainer = DenoiseTrainer(
-    model_name='unet',
-    input_size=(256, 256, 1),
-    learning_rate=1e-4,
-    batch_size=batch_size,
-    output_dir='./output'
-)
-
-# Compile the model
-trainer.compile()
-
-# Train the model
-trainer.train(train_gen, val_gen, epochs=100)
+from evaluation.visualize import visualize_predictions, plot_training_metrics
 ```
 
-### Loss Functions
+- Compare input vs. prediction vs. ground truth
+- Plot epoch-wise training loss and metrics
+- Save experiment summaries to CSV
 
-Several loss functions are implemented for denoising, including:
+---
 
-- Mean Squared Error (MSE)
-- Mean Absolute Error (MAE)
-- Structural Similarity Index (SSIM)
-- Combined MSE + SSIM loss
-- Perceptual loss (VGG16-based)
-- Gradient loss for edge preservation
+## 📊 Sample Results
 
-### Model Selection
+| Noisy Input | Ground Truth | Denoised Output |
+|-------------|---------------|-----------------|
+| ![noisy](samples/noisy.png) | ![clean](samples/clean.png) | ![output](samples/pred.png) |
 
-Choose from various pre-implemented model architectures:
+---
 
-```python
-# Standard UNet
-trainer = DenoiseTrainer(model_name='unet')
+## 📜 License
 
-# Deeper UNet
-trainer = DenoiseTrainer(model_name='deep_unet')
+This repository is distributed under the MIT License. See `LICENSE` for details.
 
-# Residual UNet
-trainer = DenoiseTrainer(model_name='residual_unet')
+---
 
-# Using pre-trained models
-trainer = DenoiseTrainer(model_name='vgg16_unet')
-trainer = DenoiseTrainer(model_name='resnet50_unet')
-trainer = DenoiseTrainer(model_name='efficient_unet')
-```
+## 🤝 Contributing
 
-## Evaluation
+Feel free to open issues or submit pull requests for improvements or new features.
 
-### Basic Evaluation
+---
 
-```python
-from evaluation.eval import DenoiseEvaluator
+## 🔬 Citation
 
-# Initialize evaluator
-evaluator = DenoiseEvaluator(output_dir='./evaluation_results')
+If you use this project in your work, please consider citing:
 
-# Load models
-evaluator.load_model('output/models/unet_model.h5', 'UNet')
-evaluator.load_model('output/models/residual_unet_model.h5', 'ResidualUNet')
-
-# Load test data
-from data.dataset import DenoiseDataGenerator
-data_generator = DenoiseDataGenerator("data/processed/final", batch_size=8)
-test_gen = data_generator.get_generator('test')
-
-# Evaluate individual models
-evaluator.evaluate_model('UNet', test_gen, visualize=True)
-evaluator.evaluate_model('ResidualUNet', test_gen, visualize=True)
-
-# Compare models
-evaluator.compare_models(['UNet', 'ResidualUNet'], test_gen)
-```
-
-### Metrics
-
-The evaluation includes various metrics tailored for image quality assessment:
-
-- Peak Signal-to-Noise Ratio (PSNR)
-- Structural Similarity Index (SSIM)
-- Multi-Scale SSIM
-- Edge Preservation
-- Haar Wavelet-Based Perceptual Similarity Index (HaarPSI)
-- Fréchet Inception Distance (FID)
-
-### Visualizations
-
-The evaluation tools generate comprehensive visualizations:
-
-- Side-by-side comparisons of noisy, denoised, and ground truth images
-- Edge detection visualizations to assess edge preservation
-- Difference maps to highlight areas of improvement or remaining artifacts
-- Residual noise analysis
-- Model comparison visualizations
-
-## Configuration
-
-All project parameters are centralized in `config.py`. You can customize:
-
-- Data preprocessing parameters
-- Model architectures and hyperparameters
-- Training settings
-- Evaluation metrics and visualization options
-
-## Ethical Considerations
-
-This project carefully analyzes the impact of different loss functions on denoising quality, with a specific focus on preserving scientifically important features in STEM images. Ethical considerations include:
-
-- Data integrity preservation
-- Avoiding hallucination of non-existent features
-- Transparency in reporting denoising artifacts
-- Ensuring reproducibility of results
-
-## Citation
-
-If you use this code for your research, please cite:
-
-```
-@article{stem_denoising,
-  title={Denoising High-Resolution STEM Images Using Deep Learning},
-  author={Ali Baghi Zadeh},
+```bibtex
+@misc{yourproject2025,
+  title={Deep Learning Denoising for High-Resolution STEM Imagery},
+  author={Your Name},
   year={2025},
+  note={https://github.com/yourusername/stem-denoising}
 }
 ```
 
-## License
+---
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+## 🙋 Contact
 
-## Acknowledgments
-
-- This research acknowledges [relevant collaborators/institutions]
-- Parts of the implementation were inspired by [relevant prior work] 
+Questions, feedback, or collaborations? Reach out via GitHub Issues or [your.email@example.com](mailto:your.email@example.com)
