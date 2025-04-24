@@ -128,10 +128,10 @@ If you use this project in your work, please consider citing:
 
 ```bibtex
 @misc{yourproject2025,
-  title={Deep Learning Denoising for High-Resolution STEM Imagery},
-  author={Your Name},
+  title={Deep Learning Denoising for High-Resolution STEM Images},
+  author={Ali baghi Zadeh},
   year={2025},
-  note={https://github.com/yourusername/stem-denoising}
+  note={!git clone https://github.com/AliBaghizadeh/high-resolution-microscopy-denoising.git}
 }
 ```
 
