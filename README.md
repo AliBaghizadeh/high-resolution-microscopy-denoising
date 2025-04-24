@@ -139,4 +139,4 @@ If you use this project in your work, please consider citing:
 
 ## 🙋 Contact
 
-Questions, feedback, or collaborations? Reach out via GitHub Issues or [your.email@example.com](mailto:your.email@example.com)
+Questions, feedback, or collaborations? Reach out via GitHub Issues or [alibaghizade@gmail.com](mailto:alibaghizade@gmail.com)
