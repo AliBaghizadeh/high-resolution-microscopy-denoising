@@ -8,6 +8,7 @@ In this project, I will show how easy one can develop a pipeline to perform imag
 Since I have collected a large set of microscopy images from diverse materials, one of **my objectives in designing this repo** is to encourage people to build their own microscopy dataset from a few hundred images and use that dataset to perform image analysis. I truly believe that using a small set of images would help everyone to address a specific problem. Our goal is not to build a general, large microscopy dataset of millions of images and develop a multipurpose architect to solve different problems (of course, that would be very nice for the microscopy society). One of the keys in designing your dataset is to have denoised images acting as ground truth for your training. Since traditional algorithms are still more reliable for many people, by guiding your model to learn from denoised images from traditional methods, we can build more trust in what the model produces. 
 
 The model was tested against the microscopy dataset of high-resolution STEM images at [https://doi.org/10.5281/zenodo.17025575](https://doi.org/10.5281/zenodo.17025575).
+
 ---
 
 ## 📁 Project Structure
